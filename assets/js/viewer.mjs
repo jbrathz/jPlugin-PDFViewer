@@ -1,5 +1,5 @@
 /**
- * jPlugin-PDFViewer - Viewer Script v1.0.1
+ * jPlugin-PDFViewer - Viewer Script v1.0.2
  * แปลง <object> PDF embeds ของ WordPress เป็น PDF.js canvas viewer
  * แก้ปัญหา X-Frame-Options: DENY บน Chrome/Edge
  */
