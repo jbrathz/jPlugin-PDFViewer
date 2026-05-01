@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 // กำหนดค่าคงที่
-define('JPDF_VERSION', '1.0.0');
+define('JPDF_VERSION', '1.0.1');
 define('JPDF_PLUGIN_FILE', __FILE__);
 define('JPDF_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('JPDF_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -24,18 +24,50 @@ define('JPDF_PLUGIN_BASENAME', plugin_basename(__FILE__));
 
 // เริ่มต้นปลั๊กอิน
 function jpdfviewer_init() {
-    add_action('wp_enqueue_scripts', 'jpdfviewer_enqueue_scripts');
+    add_action('wp_enqueue_scripts', 'jpdfviewer_enqueue_frontend_assets');
+    add_action('admin_enqueue_scripts', 'jpdfviewer_enqueue_admin_assets');
+    add_action('enqueue_block_assets', 'jpdfviewer_enqueue_block_editor_assets');
 }
 add_action('init', 'jpdfviewer_init');
 
 /**
- * Enqueue PDF.js และ viewer script
+ * Enqueue assets บน frontend
  */
-function jpdfviewer_enqueue_scripts() {
-    // ข้ามใน block editor context
-    if (jpdfviewer_is_block_editor()) {
+function jpdfviewer_enqueue_frontend_assets() {
+    jpdfviewer_enqueue_assets();
+}
+
+/**
+ * Enqueue assets บน admin edit page (post/page)
+ */
+function jpdfviewer_enqueue_admin_assets($hook_suffix) {
+    if (!in_array($hook_suffix, ['post.php', 'post-new.php'], true)) {
         return;
     }
+
+    jpdfviewer_enqueue_assets();
+}
+
+/**
+ * Enqueue assets ใน block editor iframe
+ */
+function jpdfviewer_enqueue_block_editor_assets() {
+    if (!is_admin()) {
+        return;
+    }
+
+    jpdfviewer_enqueue_assets();
+}
+
+/**
+ * Enqueue PDF.js viewer assets
+ */
+function jpdfviewer_enqueue_assets() {
+    static $is_enqueued = false;
+    if ($is_enqueued) {
+        return;
+    }
+    $is_enqueued = true;
 
     // Viewer CSS
     wp_enqueue_style(
@@ -45,32 +77,23 @@ function jpdfviewer_enqueue_scripts() {
         JPDF_VERSION
     );
 
-    // โหลด viewer script ผ่าน wp_footer เพื่อใช้ type="module" กับ ES Module ของ PDF.js
-    add_action('wp_footer', 'jpdfviewer_render_script', 20);
-}
+    // โหลด viewer script เป็นไฟล์เดียว และให้ JS import PDF.js เองผ่าน jpdfViewerConfig
+    wp_enqueue_script(
+        'jpdf-viewer-script',
+        JPDF_PLUGIN_URL . 'assets/js/viewer.mjs',
+        [],
+        JPDF_VERSION,
+        true
+    );
 
-/**
- * ตรวจสอบว่าอยู่ใน block editor context หรือไม่
- */
-function jpdfviewer_is_block_editor() {
-    global $pagenow;
-    // Block editor pages: post.php, post-new.php, site-editor.php, widgets.php, customizer
-    return in_array($pagenow, ['post.php', 'post-new.php', 'site-editor.php', 'widgets.php']) || isset($_GET['customize']);
-}
+    $config = [
+        'pdfjsUrl'  => esc_url_raw(JPDF_PLUGIN_URL . 'assets/js/pdf.min.mjs'),
+        'workerUrl' => esc_url_raw(JPDF_PLUGIN_URL . 'assets/js/pdf.worker.min.mjs'),
+    ];
 
-/**
- * Render script tag ใน footer (ใช้ type="module" สำหรับ PDF.js ES Module)
- */
-function jpdfviewer_render_script() {
-    $pdfjs_url  = esc_url(JPDF_PLUGIN_URL . 'assets/js/pdf.min.mjs');
-    $worker_url = esc_url(JPDF_PLUGIN_URL . 'assets/js/pdf.worker.min.mjs');
-    $viewer_url = esc_url(JPDF_PLUGIN_URL . 'assets/js/viewer.mjs');
-    ?>
-    <script type="module">
-        import * as pdfjsLib from <?php echo wp_json_encode($pdfjs_url); ?>;
-        pdfjsLib.GlobalWorkerOptions.workerSrc = <?php echo wp_json_encode($worker_url); ?>;
-        window._jpdfLib = pdfjsLib;
-    </script>
-    <script defer src="<?php echo esc_url($viewer_url); ?>?v=<?php echo esc_attr(JPDF_VERSION); ?>"></script>
-    <?php
+    wp_add_inline_script(
+        'jpdf-viewer-script',
+        'window.jpdfViewerConfig = ' . wp_json_encode($config) . ';',
+        'before'
+    );
 }

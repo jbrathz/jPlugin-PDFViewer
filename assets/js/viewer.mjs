@@ -6,29 +6,125 @@
 (function () {
     "use strict";
 
-    document.addEventListener("DOMContentLoaded", function () {
-        var checkReady = setInterval(function () {
-            if (window._jpdfLib) {
-                clearInterval(checkReady);
-                run(window._jpdfLib);
-            }
-        }, 100);
-        setTimeout(function () { clearInterval(checkReady); }, 10000);
+    var PROCESSED_ATTR = "data-jpdf-processed";
+    var pdfjsPromise = null;
+
+    onReady(function () {
+        bootstrap(document);
     });
 
-    function run(pdfjsLib) {
-        var objects = document.querySelectorAll(
-            'object[type="application/pdf"]'
-        );
-        if (objects.length === 0) return;
+    function onReady(callback) {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", callback, { once: true });
+            return;
+        }
+
+        callback();
+    }
+
+    function bootstrap(rootDocument) {
+        ensurePdfLib()
+            .then(function (pdfjsLib) {
+                run(pdfjsLib, rootDocument);
+                observeMutations(pdfjsLib, rootDocument);
+            })
+            .catch(function (err) {
+                console.error("[jPlugin-PDFViewer]", err);
+            });
+    }
+
+    function ensurePdfLib() {
+        if (window._jpdfLib) {
+            return Promise.resolve(window._jpdfLib);
+        }
+
+        if (pdfjsPromise) {
+            return pdfjsPromise;
+        }
+
+        var config = window.jpdfViewerConfig || {};
+        if (!config.pdfjsUrl || !config.workerUrl) {
+            return Promise.reject(new Error("jpdfViewerConfig is missing."));
+        }
+
+        pdfjsPromise = import(config.pdfjsUrl).then(function (pdfModule) {
+            var pdfjsLib = pdfModule && pdfModule.getDocument ? pdfModule : pdfModule.default;
+            if (!pdfjsLib || !pdfjsLib.getDocument) {
+                throw new Error("Unable to initialize PDF.js library.");
+            }
+
+            pdfjsLib.GlobalWorkerOptions.workerSrc = config.workerUrl;
+            window._jpdfLib = pdfjsLib;
+            return pdfjsLib;
+        });
+
+        return pdfjsPromise;
+    }
+
+    function run(pdfjsLib, rootDocument) {
+        var objects = rootDocument.querySelectorAll('object[type="application/pdf"]');
+        if (objects.length === 0) {
+            return;
+        }
+
         objects.forEach(function (obj) {
             initViewer(pdfjsLib, obj);
         });
     }
 
+    function observeMutations(pdfjsLib, rootDocument) {
+        if (!rootDocument.body || typeof MutationObserver === "undefined") {
+            return;
+        }
+
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                mutation.addedNodes.forEach(function (node) {
+                    processNode(pdfjsLib, node);
+                });
+            });
+        });
+
+        observer.observe(rootDocument.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    function processNode(pdfjsLib, node) {
+        if (!node || node.nodeType !== 1) {
+            return;
+        }
+
+        if (node.matches && node.matches('object[type="application/pdf"]')) {
+            initViewer(pdfjsLib, node);
+        }
+
+        if (!node.querySelectorAll) {
+            return;
+        }
+
+        var nestedObjects = node.querySelectorAll('object[type="application/pdf"]');
+        nestedObjects.forEach(function (obj) {
+            initViewer(pdfjsLib, obj);
+        });
+    }
+
     function initViewer(pdfjsLib, obj) {
+        if (!obj || obj.getAttribute(PROCESSED_ATTR) === "1") {
+            return;
+        }
+
         var pdfUrl = obj.getAttribute("data");
-        if (!pdfUrl) return;
+        if (!pdfUrl) {
+            return;
+        }
+
+        if (!obj.parentNode) {
+            return;
+        }
+
+        obj.setAttribute(PROCESSED_ATTR, "1");
 
         if (pdfUrl.startsWith("/")) {
             pdfUrl = window.location.origin + pdfUrl;
@@ -65,8 +161,9 @@
         var state = {
             pdfDoc: null,
             currentPage: 1,
-            scale: null, // จะคำนวณ fit-width ตอน render
+            scale: null,
             rendering: false,
+            pendingPage: null,
         };
 
         var ctx = canvas.getContext("2d");
@@ -91,37 +188,73 @@
             });
 
         function renderPage(num) {
-            if (state.rendering) return;
+            if (!state.pdfDoc) {
+                return;
+            }
+
+            if (state.rendering) {
+                state.pendingPage = num;
+                return;
+            }
+
             state.rendering = true;
 
-            state.pdfDoc.getPage(num).then(function (page) {
-                // คำนวณ scale ให้พอดีกับความกว้าง container (fit-width)
-                if (state.scale === null) {
-                    var containerWidth = canvasWrapper.clientWidth - 32; // ลบ padding
-                    var defaultViewport = page.getViewport({ scale: 1.0 });
-                    state.scale = containerWidth / defaultViewport.width;
-                }
+            state.pdfDoc
+                .getPage(num)
+                .then(function (page) {
+                    if (state.scale === null) {
+                        var containerWidth = canvasWrapper.clientWidth - 32;
+                        var defaultViewport = page.getViewport({ scale: 1.0 });
 
-                var viewport = page.getViewport({ scale: state.scale });
+                        if (containerWidth <= 0) {
+                            containerWidth = defaultViewport.width;
+                        }
 
-                // ตั้ง pixel ratio ให้ชัด
-                var ratio = window.devicePixelRatio || 1;
-                canvas.width = viewport.width * ratio;
-                canvas.height = viewport.height * ratio;
-                canvas.style.width = viewport.width + "px";
-                canvas.style.height = viewport.height + "px";
-                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                        state.scale = containerWidth / defaultViewport.width;
+                    }
 
-                page.render({ canvasContext: ctx, viewport: viewport })
-                    .promise.then(function () {
-                        state.rendering = false;
-                        state.currentPage = num;
-                        updateUI();
-                    });
-            });
+                    var viewport = page.getViewport({ scale: state.scale });
+
+                    var ratio = window.devicePixelRatio || 1;
+                    canvas.width = Math.floor(viewport.width * ratio);
+                    canvas.height = Math.floor(viewport.height * ratio);
+                    canvas.style.width = viewport.width + "px";
+                    canvas.style.height = viewport.height + "px";
+                    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+                    return page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                })
+                .then(function () {
+                    state.currentPage = num;
+                    finishRender();
+                })
+                .catch(function (err) {
+                    pageInfo.textContent = "ไม่สามารถแสดง PDF ได้";
+                    pageInfo.style.color = "#ff6b6b";
+                    console.error("[jPlugin-PDFViewer]", err);
+                    finishRender();
+                });
+        }
+
+        function finishRender() {
+            state.rendering = false;
+            updateUI();
+
+            if (state.pendingPage !== null && state.pendingPage !== state.currentPage) {
+                var nextPage = state.pendingPage;
+                state.pendingPage = null;
+                renderPage(nextPage);
+                return;
+            }
+
+            state.pendingPage = null;
         }
 
         function updateUI() {
+            if (!state.pdfDoc) {
+                return;
+            }
+
             pageInfo.textContent = state.currentPage + " / " + state.pdfDoc.numPages;
             prevBtn.disabled = state.currentPage <= 1;
             nextBtn.disabled = state.currentPage >= state.pdfDoc.numPages;
@@ -129,7 +262,9 @@
         }
 
         prevBtn.addEventListener("click", function () {
-            if (state.currentPage > 1) renderPage(state.currentPage - 1);
+            if (state.currentPage > 1) {
+                renderPage(state.currentPage - 1);
+            }
         });
 
         nextBtn.addEventListener("click", function () {
