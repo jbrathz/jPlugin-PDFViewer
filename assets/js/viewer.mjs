@@ -42,18 +42,28 @@
             return pdfjsPromise;
         }
 
-        var config = window.jpdfViewerConfig || {};
+        var config = getConfig();
         if (!config.pdfjsUrl || !config.workerUrl) {
             return Promise.reject(new Error("jpdfViewerConfig is missing."));
         }
 
-        pdfjsPromise = import(config.pdfjsUrl).then(function (pdfModule) {
+        var moduleUrl;
+        var workerUrl;
+
+        try {
+            moduleUrl = resolveModuleUrl(config.pdfjsUrl, config);
+            workerUrl = resolveModuleUrl(config.workerUrl, config);
+        } catch (err) {
+            return Promise.reject(err);
+        }
+
+        pdfjsPromise = import(moduleUrl).then(function (pdfModule) {
             var pdfjsLib = pdfModule && pdfModule.getDocument ? pdfModule : pdfModule.default;
             if (!pdfjsLib || !pdfjsLib.getDocument) {
                 throw new Error("Unable to initialize PDF.js library.");
             }
 
-            pdfjsLib.GlobalWorkerOptions.workerSrc = config.workerUrl;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
             window._jpdfLib = pdfjsLib;
             return pdfjsLib;
         });
@@ -115,8 +125,8 @@
             return;
         }
 
-        var pdfUrl = obj.getAttribute("data");
-        if (!pdfUrl) {
+        var pdfUrlRaw = obj.getAttribute("data");
+        if (!pdfUrlRaw) {
             return;
         }
 
@@ -124,11 +134,14 @@
             return;
         }
 
-        obj.setAttribute(PROCESSED_ATTR, "1");
-
-        if (pdfUrl.startsWith("/")) {
-            pdfUrl = window.location.origin + pdfUrl;
+        var pdfUrl = resolvePdfUrl(pdfUrlRaw, getConfig());
+        if (!pdfUrl) {
+            console.warn("[jPlugin-PDFViewer] Skip unsafe PDF URL:", pdfUrlRaw);
+            obj.setAttribute(PROCESSED_ATTR, "1");
+            return;
         }
+
+        obj.setAttribute(PROCESSED_ATTR, "1");
 
         // สร้าง container
         var container = document.createElement("div");
@@ -286,5 +299,79 @@
                 renderPage(state.currentPage);
             }
         });
+    }
+
+    function getConfig() {
+        var config = window.__JPDF_VIEWER_CONFIG__ || window.jpdfViewerConfig || {};
+        if (!config || typeof config !== "object") {
+            return {};
+        }
+
+        return config;
+    }
+
+    function getSiteOrigin(config) {
+        var fallbackOrigin = window.location.origin;
+        var siteOrigin = config && typeof config.siteOrigin === "string" ? config.siteOrigin : "";
+        if (!siteOrigin) {
+            return fallbackOrigin;
+        }
+
+        try {
+            return new URL(siteOrigin, window.location.href).origin;
+        } catch (err) {
+            return fallbackOrigin;
+        }
+    }
+
+    function toUrl(rawUrl) {
+        try {
+            return new URL(rawUrl, window.location.href);
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function isHttpProtocol(protocol) {
+        return protocol === "http:" || protocol === "https:";
+    }
+
+    function resolveModuleUrl(rawUrl, config) {
+        var moduleUrl = toUrl(rawUrl);
+        if (!moduleUrl) {
+            throw new Error("Invalid PDF.js URL.");
+        }
+
+        if (!isHttpProtocol(moduleUrl.protocol)) {
+            throw new Error("PDF.js URL must use HTTP/HTTPS.");
+        }
+
+        if (moduleUrl.origin !== getSiteOrigin(config)) {
+            throw new Error("Blocked cross-origin PDF.js URL.");
+        }
+
+        if (!/\.m?js$/i.test(moduleUrl.pathname)) {
+            throw new Error("PDF.js URL must be a JavaScript module file.");
+        }
+
+        return moduleUrl.href;
+    }
+
+    function resolvePdfUrl(rawUrl, config) {
+        var pdfUrl = toUrl(rawUrl);
+        if (!pdfUrl) {
+            return null;
+        }
+
+        if (!isHttpProtocol(pdfUrl.protocol)) {
+            return null;
+        }
+
+        var allowExternalPdf = config && config.allowExternalPdf === true;
+        if (!allowExternalPdf && pdfUrl.origin !== getSiteOrigin(config)) {
+            return null;
+        }
+
+        return pdfUrl.href;
     }
 })();

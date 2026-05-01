@@ -89,11 +89,24 @@ function jpdfviewer_enqueue_assets() {
     $config = [
         'pdfjsUrl'  => esc_url_raw(JPDF_PLUGIN_URL . 'assets/js/pdf.min.mjs'),
         'workerUrl' => esc_url_raw(JPDF_PLUGIN_URL . 'assets/js/pdf.worker.min.mjs'),
+        'siteOrigin' => esc_url_raw(home_url('/')),
+        'allowExternalPdf' => false,
     ];
 
     wp_add_inline_script(
         'jpdf-viewer-script',
-        'window.jpdfViewerConfig = ' . wp_json_encode($config) . ';',
+        '(function(){' .
+            'var config = ' . wp_json_encode($config) . ';' .
+            'try {' .
+                'Object.defineProperty(window, "__JPDF_VIEWER_CONFIG__", {' .
+                    'value: Object.freeze(config),' .
+                    'writable: false,' .
+                    'configurable: false' .
+                '});' .
+            '} catch (e) {' .
+                'window.__JPDF_VIEWER_CONFIG__ = config;' .
+            '}' .
+        '})();',
         'before'
     );
 }
