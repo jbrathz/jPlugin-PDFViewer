@@ -32,8 +32,8 @@ add_action('init', 'jpdfviewer_init');
  * Enqueue PDF.js และ viewer script
  */
 function jpdfviewer_enqueue_scripts() {
-    // ถ้าเป็น admin แต่ไม่ใช่ preview/editor context ให้ข้าม
-    if (is_admin() && !jpdfviewer_is_block_editor()) {
+    // ข้ามใน block editor context
+    if (jpdfviewer_is_block_editor()) {
         return;
     }
 
