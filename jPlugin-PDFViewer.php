@@ -3,7 +3,7 @@
  * Plugin Name: jPlugin-PDFViewer
  * Plugin URI: https://dev.jirath.com/
  * Description: แปลง PDF embed ของ WordPress ให้ใช้ PDF.js แทน เพื่อแก้ปัญหา X-Frame-Options บน Chrome/Edge
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: JIRATH BURAPARATH
  * Author URI: https://www.jirath.com
  * Text Domain: jpdfviewer
@@ -32,7 +32,8 @@ add_action('init', 'jpdfviewer_init');
  * Enqueue PDF.js และ viewer script
  */
 function jpdfviewer_enqueue_scripts() {
-    if (is_admin()) {
+    // ถ้าเป็น admin แต่ไม่ใช่ preview/editor context ให้ข้าม
+    if (is_admin() && !jpdfviewer_is_block_editor()) {
         return;
     }
 
@@ -49,6 +50,15 @@ function jpdfviewer_enqueue_scripts() {
 }
 
 /**
+ * ตรวจสอบว่าอยู่ใน block editor context หรือไม่
+ */
+function jpdfviewer_is_block_editor() {
+    global $pagenow;
+    // Block editor pages: post.php, post-new.php, site-editor.php, widgets.php, customizer
+    return in_array($pagenow, ['post.php', 'post-new.php', 'site-editor.php', 'widgets.php']) || isset($_GET['customize']);
+}
+
+/**
  * Render script tag ใน footer (ใช้ type="module" สำหรับ PDF.js ES Module)
  */
 function jpdfviewer_render_script() {
@@ -57,8 +67,8 @@ function jpdfviewer_render_script() {
     $viewer_url = esc_url(JPDF_PLUGIN_URL . 'assets/js/viewer.mjs');
     ?>
     <script type="module">
-        import * as pdfjsLib from '<?php echo $pdfjs_url; ?>';
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '<?php echo $worker_url; ?>';
+        import * as pdfjsLib from <?php echo wp_json_encode($pdfjs_url); ?>;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = <?php echo wp_json_encode($worker_url); ?>;
         window._jpdfLib = pdfjsLib;
     </script>
     <script defer src="<?php echo esc_url($viewer_url); ?>?v=<?php echo esc_attr(JPDF_VERSION); ?>"></script>
