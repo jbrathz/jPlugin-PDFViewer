@@ -18,7 +18,7 @@
 
     function run(pdfjsLib) {
         var objects = document.querySelectorAll(
-            'object.wp-block-file__embed[type="application/pdf"]'
+            'object[type="application/pdf"]'
         );
         if (objects.length === 0) return;
         objects.forEach(function (obj) {
