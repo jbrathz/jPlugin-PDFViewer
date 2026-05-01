@@ -305,7 +305,6 @@
         }
 
         obj.removeAttribute(PROCESSED_ATTR);
-        obj.style.removeProperty("display");
         clearViewerState(obj);
     }
 
@@ -317,26 +316,22 @@
         return !!obj.closest(".components-resizable-box__container");
     }
 
-    function getPreferredHeight(obj) {
-        if (!obj) {
+    function getEditorContainerHeight(obj) {
+        if (!obj || !obj.parentElement) {
             return 0;
         }
 
-        var height = obj.clientHeight;
+        var height = obj.parentElement.clientHeight;
         if (height > 0) {
             return height;
         }
 
         var win = obj.ownerDocument && obj.ownerDocument.defaultView ? obj.ownerDocument.defaultView : window;
         if (win && typeof win.getComputedStyle === "function") {
-            var computedHeight = parseFloat(win.getComputedStyle(obj).height || "0");
+            var computedHeight = parseFloat(win.getComputedStyle(obj.parentElement).height || "0");
             if (computedHeight > 0) {
                 return computedHeight;
             }
-        }
-
-        if (obj.parentElement && obj.parentElement.clientHeight > 0) {
-            return obj.parentElement.clientHeight;
         }
 
         return 0;
@@ -360,7 +355,7 @@
             return;
         }
 
-        if (!isEditorResizableBox(obj) || !obj.parentElement) {
+        if (!state.isEditor || !obj.parentElement) {
             return;
         }
 
@@ -369,7 +364,7 @@
                 return;
             }
 
-            syncContainerHeight(state.container, getPreferredHeight(obj));
+            syncContainerHeight(state.container, getEditorContainerHeight(obj));
 
             if (state.pdfDoc && !state.customZoom) {
                 state.scale = null;
@@ -398,6 +393,8 @@
 
         var currentState = getViewerState(obj);
         var nodeDocument = obj.ownerDocument || document;
+        var inEditor = isEditorResizableBox(obj);
+        var initialEditorHeight = inEditor ? getEditorContainerHeight(obj) : 0;
 
         var pdfUrl = resolvePdfUrl(pdfUrlRaw, getConfig());
         if (!pdfUrl) {
@@ -408,12 +405,13 @@
         }
 
         if (currentState && currentState.pdfUrl === pdfUrl) {
-            syncContainerHeight(currentState.container, getPreferredHeight(obj));
+            if (currentState.isEditor) {
+                syncContainerHeight(currentState.container, initialEditorHeight);
+            }
             return;
         }
 
         cleanupViewer(obj);
-        obj.style.setProperty("display", "none", "important");
 
         obj.setAttribute(PROCESSED_ATTR, "1");
 
@@ -421,11 +419,10 @@
         var container = nodeDocument.createElement("div");
         container.className = "jpdf-viewer-container";
 
-        if (isEditorResizableBox(obj)) {
+        if (inEditor) {
             container.classList.add("jpdf-in-editor");
+            syncContainerHeight(container, initialEditorHeight);
         }
-
-        syncContainerHeight(container, getPreferredHeight(obj));
 
         // Toolbar (ไม่มีปุ่ม download)
         var toolbar = nodeDocument.createElement("div");
@@ -459,6 +456,7 @@
             destroyed: false,
             pdfUrl: pdfUrl,
             container: container,
+            isEditor: inEditor,
             pdfDoc: null,
             currentPage: 1,
             scale: null,

@@ -2,6 +2,10 @@
  * jPlugin-PDFViewer - Viewer Styles v1.0.2
  */
 
+object[type="application/pdf"][data-jpdf-processed="1"] {
+    display: none !important;
+}
+
 .jpdf-viewer-container {
     width: 100%;
     background: #525659;
