@@ -63,12 +63,6 @@ function jpdfviewer_enqueue_block_editor_assets() {
  * Enqueue PDF.js viewer assets
  */
 function jpdfviewer_enqueue_assets() {
-    static $is_enqueued = false;
-    if ($is_enqueued) {
-        return;
-    }
-    $is_enqueued = true;
-
     // Viewer CSS
     wp_enqueue_style(
         'jpdf-viewer-style',

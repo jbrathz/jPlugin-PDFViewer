@@ -8,9 +8,10 @@
 
     var PROCESSED_ATTR = "data-jpdf-processed";
     var pdfjsPromise = null;
+    var observedDocuments = typeof WeakSet !== "undefined" ? new WeakSet() : null;
 
     onReady(function () {
-        bootstrap(document);
+        startBootstrap(document);
     });
 
     function onReady(callback) {
@@ -20,6 +21,113 @@
         }
 
         callback();
+    }
+
+    function startBootstrap(rootDocument) {
+        if (!isDocumentUsable(rootDocument)) {
+            return;
+        }
+
+        if (isDocumentObserved(rootDocument)) {
+            return;
+        }
+
+        markDocumentObserved(rootDocument);
+        bootstrap(rootDocument);
+        observeIframes(rootDocument);
+    }
+
+    function isDocumentUsable(rootDocument) {
+        return !!(rootDocument && rootDocument.querySelectorAll);
+    }
+
+    function isDocumentObserved(rootDocument) {
+        if (observedDocuments) {
+            return observedDocuments.has(rootDocument);
+        }
+
+        return rootDocument.__jpdfObserved === true;
+    }
+
+    function markDocumentObserved(rootDocument) {
+        if (observedDocuments) {
+            observedDocuments.add(rootDocument);
+            return;
+        }
+
+        rootDocument.__jpdfObserved = true;
+    }
+
+    function observeIframes(rootDocument) {
+        if (!rootDocument.body) {
+            return;
+        }
+
+        bindIframes(rootDocument);
+
+        if (typeof MutationObserver === "undefined") {
+            return;
+        }
+
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
+                mutation.addedNodes.forEach(function (node) {
+                    if (!node || node.nodeType !== 1) {
+                        return;
+                    }
+
+                    if (node.matches && node.matches("iframe")) {
+                        bindIframe(node);
+                    }
+
+                    if (!node.querySelectorAll) {
+                        return;
+                    }
+
+                    node.querySelectorAll("iframe").forEach(function (iframe) {
+                        bindIframe(iframe);
+                    });
+                });
+            });
+        });
+
+        observer.observe(rootDocument.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    function bindIframes(rootDocument) {
+        rootDocument.querySelectorAll("iframe").forEach(function (iframe) {
+            bindIframe(iframe);
+        });
+    }
+
+    function bindIframe(iframe) {
+        if (!iframe || iframe.__jpdfBound === true) {
+            return;
+        }
+
+        iframe.__jpdfBound = true;
+
+        var bootstrapIframe = function () {
+            var iframeDocument = null;
+
+            try {
+                iframeDocument = iframe.contentDocument;
+            } catch (err) {
+                return;
+            }
+
+            if (!iframeDocument) {
+                return;
+            }
+
+            startBootstrap(iframeDocument);
+        };
+
+        iframe.addEventListener("load", bootstrapIframe);
+        bootstrapIframe();
     }
 
     function bootstrap(rootDocument) {
@@ -134,6 +242,8 @@
             return;
         }
 
+        var nodeDocument = obj.ownerDocument || document;
+
         var pdfUrl = resolvePdfUrl(pdfUrlRaw, getConfig());
         if (!pdfUrl) {
             console.warn("[jPlugin-PDFViewer] Skip unsafe PDF URL:", pdfUrlRaw);
@@ -144,11 +254,11 @@
         obj.setAttribute(PROCESSED_ATTR, "1");
 
         // สร้าง container
-        var container = document.createElement("div");
+        var container = nodeDocument.createElement("div");
         container.className = "jpdf-viewer-container";
 
         // Toolbar (ไม่มีปุ่ม download)
-        var toolbar = document.createElement("div");
+        var toolbar = nodeDocument.createElement("div");
         toolbar.className = "jpdf-toolbar";
         toolbar.innerHTML =
             '<button class="jpdf-prev" disabled title="หน้าก่อน">◀</button>' +
@@ -161,9 +271,9 @@
         container.appendChild(toolbar);
 
         // Canvas wrapper
-        var canvasWrapper = document.createElement("div");
+        var canvasWrapper = nodeDocument.createElement("div");
         canvasWrapper.className = "jpdf-canvas-wrapper";
-        var canvas = document.createElement("canvas");
+        var canvas = nodeDocument.createElement("canvas");
         canvasWrapper.appendChild(canvas);
         container.appendChild(canvasWrapper);
 
