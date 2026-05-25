@@ -30,6 +30,9 @@
         if (!isDocumentUsable(rootDocument)) {
             return;
         }
+        if (!shouldProcessDocument(rootDocument)) {
+            return;
+        }
 
         if (isDocumentObserved(rootDocument)) {
             return;
@@ -38,6 +41,32 @@
         markDocumentObserved(rootDocument);
         bootstrap(rootDocument);
         observeIframes(rootDocument);
+    }
+
+    function shouldProcessDocument(rootDocument) {
+        var body = rootDocument.body;
+        if (!body || !body.classList) {
+            return true;
+        }
+
+        if (!body.classList.contains("wp-admin")) {
+            return true;
+        }
+
+        if (body.classList.contains("block-editor-iframe__body")) {
+            return true;
+        }
+
+        if (rootDocument.querySelector && rootDocument.querySelector(".editor-styles-wrapper")) {
+            return true;
+        }
+
+        // Classic editor / post edit screens in wp-admin.
+        if (body.classList.contains("post-php") || body.classList.contains("post-new-php")) {
+            return true;
+        }
+
+        return false;
     }
 
     function isDocumentUsable(rootDocument) {

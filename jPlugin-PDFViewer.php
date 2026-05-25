@@ -3,7 +3,7 @@
  * Plugin Name: jPlugin-PDFViewer
  * Plugin URI: https://dev.jirath.com/
  * Description: แปลง PDF embed ของ WordPress ให้ใช้ PDF.js แทน เพื่อแก้ปัญหา X-Frame-Options บน Chrome/Edge
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: JIRATH BURAPARATH
  * Author URI: https://www.jirath.com
  * Text Domain: jpdfviewer
@@ -38,7 +38,7 @@ function jpdfviewer_enqueue_frontend_assets() {
 }
 
 /**
- * Enqueue assets บน admin edit page (post/page)
+ * Enqueue assets บน admin edit page (post/page/custom post type)
  */
 function jpdfviewer_enqueue_admin_assets($hook_suffix) {
     if (!in_array($hook_suffix, ['post.php', 'post-new.php'], true)) {
